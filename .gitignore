@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.log
+storage/
+exports/
+
+# Release binaries. The installer source (release/installer, release/payload)
+# is tracked; the compiled installer and the exported Docker images are not.
+release/*.exe
+release/*.zip
+release/payload/images/

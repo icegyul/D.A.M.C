@@ -1,0 +1,97 @@
+# DAMC production runtime.
+#
+# Both images are loaded from the bundle the installer ships, so this stack does
+# not need to reach a registry. Both ports are published on the loopback
+# interface only: DAMC is a local, single-user memory store and is never exposed
+# to the network by this file.
+name: damc
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: damc
+      POSTGRES_USER: damc
+      POSTGRES_PASSWORD: damc
+    # NOT published to the host. The application reaches the database over this
+    # compose network as `db`, and the migration step runs in a one-off container on
+    # the same network, so nothing outside Docker ever needs a port here.
+    #
+    # It used to be published on 127.0.0.1:5432 with the fixed password below, which
+    # handed every process on the machine the user's entire memory database with
+    # credentials printed in this file. Closing it is what makes the API's own
+    # authentication worth anything: with the port open, any local auth was theatre.
+    #
+    # To inspect the database as an operator, go through Docker rather than reopening
+    # this:  docker compose exec db psql -U damc -d damc
+    volumes: ["damc_pg:/var/lib/postgresql/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U damc -d damc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: dalur/damc:release-1.2.0
+    environment:
+      PORT: 8787
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://damc:damc@db:5432/damc
+      # Authentication is enforced in the shipped product. Every /v1 request needs
+      # an API key — including one from this machine — and the only exception is a
+      # single first-run bootstrap: on a machine that has never issued a key, a
+      # request from that machine may claim the first one, which is what the bundled
+      # dashboard does by itself on first open. The window closes permanently the
+      # moment a live key exists.
+      #
+      # This used to be "true", which granted every locally-originating request an
+      # identity for ever. That was scoped (forwarding headers disqualify a request,
+      # so a tunnel could never use it) but it left the documented limitation that a
+      # LAN peer is indistinguishable from the Docker host if the port is ever
+      # republished off loopback. Enforcing keys removes that.
+      DAMC_DEV_MODE: "false"
+      GITHUB_BACKUP_ENABLED: "false"
+      # Watch-folder import. The app runs inside this container, so it can only
+      # see C:\DAMC_IMPORT through the bind mount below — DAMC_IMPORT_WATCH_DIR
+      # is the container-side path the mount lands on, never the host path.
+      # DAMC_IMPORT_WATCH_HOST_DIR is cosmetic: the real Windows path shown in
+      # the UI/CLI and used for the "open folder" link. C: rather than D:
+      # because not every machine has a D: drive, and the root of C: (unlike
+      # C:\Program Files) does not need elevation — verified directly.
+      # AUTOSTART is "true" here specifically (unlike the dev compose file,
+      # which defaults it off): this is what a distributed end user gets, and
+      # the point of shipping it is that dropping a file into the folder just
+      # after install works without first finding a "start watching" button.
+      DAMC_IMPORT_WATCH_DIR: /damc-import
+      DAMC_IMPORT_WATCH_HOST_DIR: C:\DAMC_IMPORT
+      DAMC_IMPORT_WATCH_AUTOSTART: "true"
+      # Obsidian sync target. Node writes here, and this path is a bind mount of the
+      # Windows folder named below - so the notes land where Obsidian can open them
+      # as a vault. Before this, the export went to /app/storage/obsidian inside the
+      # damc_storage volume: a path that does not exist on the user's PC, which made
+      # the whole "DAMC -> Obsidian Graph View" feature unreachable from Obsidian.
+      OBSIDIAN_VAULT_PATH: /damc-obsidian
+      DAMC_OBSIDIAN_HOST_DIR: C:\DAMC_OBSIDIAN
+      # Hosts DAMC will download a Claude export package from, applied to every
+      # redirect hop. These URLs come out of a file the user uploaded, so this
+      # allowlist is what keeps a server-side fetch from becoming an SSRF.
+      DAMC_CLAUDE_DOWNLOAD_HOSTS: claude.ai
+      # Upload temp files and generated exports live under /app/storage. A large
+      # import writes the whole upload there before reading it back, so this is a
+      # named volume rather than the container's writable layer: a multi-gigabyte
+      # temp file does not belong in an overlay that is discarded on recreate, and
+      # Obsidian/JSON exports written here now survive a container replacement.
+    volumes:
+      - damc_storage:/app/storage
+      - C:/DAMC_IMPORT:/damc-import
+      - C:/DAMC_OBSIDIAN:/damc-obsidian
+    ports: ["127.0.0.1:8787:8787"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  damc_pg:
+  damc_storage:

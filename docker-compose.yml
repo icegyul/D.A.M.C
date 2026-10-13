@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: damc
+      POSTGRES_USER: damc
+      POSTGRES_PASSWORD: damc
+    # Published on the loopback interface only: the host dev server and psql can
+    # reach it, nothing on the LAN can. The app container uses the compose
+    # network (db:5432) and does not depend on this published port.
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["damc_pg:/var/lib/postgresql/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U damc -d damc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  app:
+    build: .
+    environment:
+      PORT: 8787
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://damc:damc@db:5432/damc
+      # Local single-user runtime: the bundled dashboard needs no API key, so it
+      # works straight after a reboot. This only applies to requests that
+      # originate on this machine — src/http/auth.ts requires a real API key for
+      # anything arriving through a proxy or tunnel (including the Remote Access
+      # cloudflared tunnel), whatever this flag says. Set it to "false" to
+      # require a key locally too.
+      DAMC_DEV_MODE: "true"
+      DAMC_API_KEY_ADMIN: ${DAMC_API_KEY_ADMIN:-change-me-before-production}
+      GITHUB_BACKUP_ENABLED: "false"
+      # Watch-folder import. The app runs inside this container, so it can only
+      # see C:\DAMC_IMPORT through the bind mount below — DAMC_IMPORT_WATCH_DIR
+      # is the container-side path the mount lands on, never the host path.
+      # DAMC_IMPORT_WATCH_HOST_DIR is cosmetic: the real Windows path shown in
+      # the UI/CLI and used for the "open folder" link. Off (not watching)
+      # until an operator starts it from Settings/Import, unless autostart below is turned on.
+      DAMC_IMPORT_WATCH_DIR: /damc-import
+      DAMC_IMPORT_WATCH_HOST_DIR: ${DAMC_IMPORT_WATCH_HOST_DIR:-C:\DAMC_IMPORT}
+      DAMC_IMPORT_WATCH_AUTOSTART: ${DAMC_IMPORT_WATCH_AUTOSTART:-false}
+      # Hosts DAMC will download a Claude export package from, applied to every
+      # redirect hop. These URLs come out of a file the user uploaded, so this
+      # allowlist is what keeps a server-side fetch from becoming an SSRF.
+      DAMC_CLAUDE_DOWNLOAD_HOSTS: ${DAMC_CLAUDE_DOWNLOAD_HOSTS:-claude.ai}
+      # Upload temp files and generated exports live under /app/storage. A large
+      # import writes the whole upload there before reading it back, so this is a
+      # named volume rather than the container's writable layer: a multi-gigabyte
+      # temp file does not belong in an overlay that is discarded on recreate, and
+      # Obsidian/JSON exports written here now survive a container replacement.
+    volumes:
+      - damc_storage:/app/storage
+      - ${DAMC_IMPORT_WATCH_MOUNT:-C:/DAMC_IMPORT}:/damc-import
+    ports: ["127.0.0.1:8787:8787"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  damc_pg:
+  damc_storage:

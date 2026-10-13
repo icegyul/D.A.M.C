@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  // scripts/migrate.ts only, not scripts/**: the production image gets whatever is
+  // in dist, and a compiled developer script sitting next to the migrate entry point
+  // that damc-start.cmd invokes is an accident waiting to be copy-pasted against a
+  // user's live database. Development scripts run through tsx and need no build.
+  "include": ["src/**/*.ts", "scripts/migrate.ts"]
+}

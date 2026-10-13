@@ -1,0 +1,9 @@
+DAMC 1.2.0 - release checksum
+
+File   : DAMC_Setup.exe
+Size   : 206794491 bytes (197.21 MB)
+SHA256 : C15BB135E6D5A316A36DAC7C46EBBC9188671850168295B1CD6EB89FFA6CB367
+
+Verify on Windows:
+  certutil -hashfile DAMC_Setup.exe SHA256
+  Get-FileHash DAMC_Setup.exe -Algorithm SHA256
